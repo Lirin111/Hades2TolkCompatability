@@ -16,3 +16,177 @@ OnMouseOver{
 		OnMouseOverTrigger(triggerArgs)
 	end
 }
+
+--Read non-dialogue voicelines
+ModUtil.Path.Wrap("PlayVoiceLine", function(base, line, prevLine, parentLine, source, args, originalArgs)
+	if line.Cue ~= nil and line.Cue ~= "/EmptyCue" then
+		local ref = line.Cue
+		ref = string.gsub(ref, "/VO/", "")
+		local text = GetDisplayName({ Text = ref }):gsub("{[^}]+}", ""):gsub("%(s%)", "s")
+		rom.tolk.silence()
+		rom.tolk.output(text)
+	end
+	base(line, prevLine, parentLine, source, args, originalArgs)
+end)
+
+-- Read dialogues
+ModUtil.Path.Wrap("DisplayTextLine", function(base, screen, source, line, parentLine, nextLine, args)
+	if line.Cue ~= nil and line.Cue ~= "/EmptyCue" then
+		local ref = line.Cue
+		ref = string.gsub(ref, "/VO/", "")
+		local text = GetDisplayName({ Text = ref }):gsub("{[^}]+}", ""):gsub("%(s%)", "s")
+		rom.tolk.silence()
+		rom.tolk.output(text)
+	end
+	base(screen, source, line, parentLine, nextLine, args)
+end)
+
+-- Add description text to Quest buttons (like Silver Pool does)
+ModUtil.Path.Context.Wrap("OpenQuestLogScreen", function()
+	ModUtil.Path.Wrap("CreateTextBox", function(base, textBoxArgs)
+		-- Call the base CreateTextBox first
+		local result = base(textBoxArgs)
+
+		-- Check if this is a quest name text box
+		if textBoxArgs and textBoxArgs.Text and textBoxArgs.Id then
+			-- Check if this text matches a quest name by looking for it in QuestData
+			local questData = QuestData[textBoxArgs.Text]
+			if questData then
+				-- Add invisible description text (like Silver Pool)
+				base({
+					Id = textBoxArgs.Id,
+					Text = textBoxArgs.Text,
+					UseDescription = true,
+					Color = Color.Transparent,
+				})
+
+				-- Add reward info if available
+				if questData.RewardResourceName and questData.RewardResourceAmount and GameState.QuestStatus[questData.Name] ~= "CashedOut" then
+					-- Add simple "Reward" label
+					base({
+						Id = textBoxArgs.Id,
+						Text = "Reward",
+						Color = Color.Transparent,
+					})
+
+					-- Add reward amount and localized resource name
+					local resourceDisplayName = GetDisplayName({ Text = questData.RewardResourceName })
+					if resourceDisplayName and resourceDisplayName ~= "" then
+						base({
+							Id = textBoxArgs.Id,
+							Text = questData.RewardResourceAmount .. " " .. resourceDisplayName,
+							Color = Color.Transparent,
+						})
+					end
+				end
+			end
+		end
+
+		return result
+	end)
+end)
+
+-- Add cost/unlock condition text to Silver Pool buttons
+ModUtil.Path.Wrap("MouseOverWeaponShopItem", function(base, button)
+	base(button)
+
+	-- Add cost information as transparent text on the button (if not purchased)
+	if button and button.Data and button.Data.Cost and not button.Purchased then
+		-- Add a simple "Cost" label
+		CreateTextBox({
+			Id = button.Id,
+			Text = "Cost",
+			Color = Color.Transparent,
+		})
+
+		-- Add each resource cost
+		for resourceName, amount in pairs(button.Data.Cost) do
+			local resourceData = ResourceData[resourceName]
+			if resourceData then
+				local resourceDisplayName = GetDisplayName({ Text = resourceData.CostTextId or resourceName })
+				if resourceDisplayName and resourceDisplayName ~= "" then
+					CreateTextBox({
+						Id = button.Id,
+						Text = amount .. " " .. resourceDisplayName,
+						Color = Color.Transparent,
+					})
+				end
+			end
+		end
+	end
+end)
+
+-- Add cost/unlock condition text to Cauldron (Ghost Admin) buttons
+ModUtil.Path.Wrap("MouseOverGhostAdminItem", function(base, button)
+	base(button)
+
+	-- Add cost information as transparent text on the button (if not purchased)
+	if button and button.Data and button.Data.Cost and not button.Purchased then
+		-- Add a simple "Cost" label
+		CreateTextBox({
+			Id = button.Id,
+			Text = "Cost",
+			Color = Color.Transparent,
+		})
+
+		-- Add each resource cost
+		for resourceName, amount in pairs(button.Data.Cost) do
+			local resourceData = ResourceData[resourceName]
+			if resourceData then
+				local resourceDisplayName = GetDisplayName({ Text = resourceData.CostTextId or resourceName })
+				if resourceDisplayName and resourceDisplayName ~= "" then
+					CreateTextBox({
+						Id = button.Id,
+						Text = amount .. " " .. resourceDisplayName,
+						Color = Color.Transparent,
+					})
+				end
+			end
+		end
+	end
+end)
+
+-- Add descriptions and relationship info to Book of Shadows (Codex) entries
+ModUtil.Path.Wrap("CodexOpenEntry", function(base, screen, button, args)
+	base(screen, button, args)
+
+	if button and button.EntryName and button.EntryData then
+		-- Add description text from the entry
+		if button.EntryData.Entries then
+			for index, unlockPortion in ipairs(button.EntryData.Entries) do
+				local subEntryData = CodexData[button.ChapterName].Entries[button.EntryName].Entries[index]
+				if SessionState.CodexDebugUnlocked or subEntryData.UnlockGameStateRequirements == nil or IsGameStateEligible(screen, subEntryData.UnlockGameStateRequirements) then
+					local descText = GetDisplayName({ Text = unlockPortion.HelpTextId or unlockPortion.Text })
+					if descText and descText ~= "" then
+						CreateTextBox({
+							Id = button.Id,
+							Text = descText,
+							Color = Color.Transparent,
+						})
+					end
+				end
+			end
+		end
+
+		-- Add relationship/gift info if available
+		local narrativeData = NarrativeData[button.EntryName]
+		if narrativeData and narrativeData.GiftTextLinePriorities and GameState.WorldUpgradesAdded.WorldUpgradeRelationshipBar then
+			-- Add relationship label
+			CreateTextBox({
+				Id = button.Id,
+				Text = "Relationship",
+				Color = Color.Transparent,
+			})
+
+			-- Add gift count info
+			local giftCount = GetGiftCount(button.EntryName)
+			if giftCount and giftCount > 0 then
+				CreateTextBox({
+					Id = button.Id,
+					Text = "Gifts given: " .. giftCount,
+					Color = Color.Transparent,
+				})
+			end
+		end
+	end
+end)
