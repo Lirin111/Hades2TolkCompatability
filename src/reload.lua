@@ -171,3 +171,20 @@ function createCollection(lines)
 
 	return collection
 end
+
+-- Helper function to get the number of gifts given to a character
+function GetGiftCount(characterName)
+	if not characterName then
+		return 0
+	end
+
+	if GameState.GiftTextLinesOrderRecord == nil then
+		return 0
+	end
+
+	if GameState.GiftTextLinesOrderRecord[characterName] == nil then
+		return 0
+	end
+
+	return #GameState.GiftTextLinesOrderRecord[characterName]
+end
