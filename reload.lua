@@ -126,6 +126,7 @@ local IconNameToTextId = {
 	["PlantGCattail_Text"] = "PlantGCattail",
 	["PlantNGarlicSeed_Text"] = "PlantNGarlicSeed",
 	["PlantNGarlic_Text"] = "PlantNGarlic",
+	["CosmeticsPointsPrestige_Text"] = "CosmeticsPoints",
 	["PlantOMandrakeSeed_Text"] = "PlantOMandrakeSeed",
 	["PlantOMandrake_Text"] = "PlantOMandrake",
 	["BountyBoardEye"] = "DeathVengeanceKeepsake"

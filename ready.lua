@@ -19,14 +19,115 @@ OnMouseOver{
 
 --Read non-dialogue voicelines
 ModUtil.Path.Wrap("PlayVoiceLine", function(base, line, prevLine, parentLine, source, args, originalArgs)
-	if line.Cue ~= nil and line.Cue ~= "/EmptyCue" then
-		local ref = line.Cue
-		ref = string.gsub(ref, "/VO/", "")
-		local text = GetDisplayName({ Text = ref }):gsub("{[^}]+}", ""):gsub("%(s%)", "s")
-		rom.tolk.silence()
-		rom.tolk.output(text)
+	local isDryRun = (args and args.ReturnOnly) or (originalArgs and originalArgs.ReturnOnly)
+
+	-- We only proceed with our announcement logic if there's a real cue AND it is NOT a dry run.
+	if not isDryRun and line.Cue ~= nil and line.Cue ~= "/EmptyCue" then
+		thread(function()
+			local gameDelay = line.PreLineWait or (parentLine and parentLine.PreLineWait) or 0
+			wait(gameDelay)
+
+			local ref = line.Cue
+			ref = string.gsub(ref, "/VO/", "")
+			local text = GetDisplayName({ Text = ref }):gsub("{[^}]+}", ""):gsub("%(s%)", "s")
+			rom.tolk.silence()
+			rom.tolk.output(text)
+		end)
 	end
-	base(line, prevLine, parentLine, source, args, originalArgs)
+
+	local returnValue = base(line, prevLine, parentLine, source, args, originalArgs)
+	return returnValue
+end)
+
+-- Read combat popups, EG: damage, interact prompts
+ModUtil.Path.Wrap("CreateTextBox", function(base, format)
+
+	if IsScreenOpen("TalentScreen") then
+		return base(format)
+	end
+
+	local textBoxObject = base(format)
+	if format and format.Font == "P22UndergroundSCHeavy" and textBoxObject and textBoxObject.Id then
+
+		thread(function()
+			wait(0.1)
+
+			local lines = rom.tolk.get_lines_from_thing(textBoxObject.Id)
+			local textToSpeak = createCollection(lines)
+
+			if textToSpeak and textToSpeak:match("%S") then
+				local UnwantedTextFragments = { " Status/WantsToFight" }
+				for _, fragment in ipairs(UnwantedTextFragments) do
+					if string.find(textToSpeak, fragment) then
+						return
+					end
+				end
+
+				local isDamageNumber = textToSpeak:match("%d") and not textToSpeak:match("%a")
+				local shouldSpeak = false
+				if isDamageNumber then
+					if config.PopupAnnouncements.ReadDamageNumbers then
+						shouldSpeak = true
+					end
+				else
+					if config.PopupAnnouncements.ReadInteractPrompts then
+						shouldSpeak = true
+					end
+				end
+
+				if shouldSpeak then
+					local finalOutput = textToSpeak -- Start with the original text.
+					if isDamageNumber and string.find(finalOutput, "!") then
+						finalOutput = "Crit" .. finalOutput
+					end
+
+					rom.tolk.silence()
+					rom.tolk.output(finalOutput)
+				end
+	end
+end)
+	end
+
+	return textBoxObject
+end)
+
+-- Read banners
+ModUtil.Path.Wrap("DisplayInfoBanner", function(base, source, args)
+	base(source, args)
+
+	if args and args.Text then
+		local textToSpeak = GetDisplayName({
+			Text = args.Text,
+			LuaKey = args.LuaKey,
+			LuaValue = args.LuaValue
+		})
+
+		if textToSpeak and textToSpeak:match("%S") then
+			rom.tolk.silence()
+			rom.tolk.output(textToSpeak)
+		end
+	end
+
+end)
+
+-- Read prompts.
+ModUtil.Path.Wrap("CreateScreenFromData", function(base, screen, componentData)
+	base(screen, componentData)
+	if screen and screen.Components and screen.Components.TitleText and screen.Components.DescriptionText and not screen.hasBeenReadByAccessibility then
+		screen.hasBeenReadByAccessibility = true
+
+		thread(function()
+			wait(0.1)
+
+			local titleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.TitleText.Id))
+			local descriptionString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.DescriptionText.Id))
+
+			local fullPrompt = titleString .. ". " .. descriptionString
+
+			rom.tolk.silence()
+			rom.tolk.output(fullPrompt)
+		end)
+	end
 end)
 
 -- Read dialogues
@@ -34,9 +135,88 @@ ModUtil.Path.Wrap("DisplayTextLine", function(base, screen, source, line, parent
 	if line.Cue ~= nil and line.Cue ~= "/EmptyCue" then
 		local ref = line.Cue
 		ref = string.gsub(ref, "/VO/", "")
-		local text = GetDisplayName({ Text = ref }):gsub("{[^}]+}", ""):gsub("%(s%)", "s")
+		local text = GetDisplayName({ Text = ref }):gsub("{[^}]+}", ""):gsub("%((s)%)", "s")
 		rom.tolk.silence()
-		rom.tolk.output(text)
+		-- Resolve speaker id from current line / args / parent line
+		local speakerId = nil
+		if line.Speaker ~= nil then
+			speakerId = line.Speaker
+		elseif line.SpeakerName ~= nil then
+			speakerId = line.SpeakerName
+		elseif line.SpeakerNameId ~= nil then
+			speakerId = line.SpeakerNameId
+		end
+		if speakerId == nil and type(args) == "table" then
+			if args.Speaker ~= nil then
+				speakerId = args.Speaker
+			elseif args.SpeakerName ~= nil then
+				speakerId = args.SpeakerName
+			end
+		end
+		if speakerId == nil and type(parentLine) == "table" then
+			if parentLine.Speaker ~= nil then
+				speakerId = parentLine.Speaker
+			elseif parentLine.SpeakerName ~= nil then
+				speakerId = parentLine.SpeakerName
+			end
+		end
+		-- Extract English speaker name (prefer Cue, fallback to speakerId)
+		local speakerName = nil
+		do
+			local cueRef = type(line.Cue) == "string" and line.Cue:gsub("^/VO/", "") or nil
+			if cueRef ~= nil then
+				local npcBase = cueRef:match("^NPC_([^_]+)")
+				if npcBase ~= nil then
+					speakerName = npcBase
+				else
+					local base = cueRef:match("^([A-Za-z]+)")
+					if base ~= nil then
+						speakerName = base
+					end
+				end
+			end
+			if speakerName == nil and speakerId ~= nil then
+				local sid = tostring(speakerId)
+				if sid:find("^NPC_") then
+					local npcBase2 = sid:match("^NPC_([^_]+)")
+					speakerName = npcBase2 or sid
+				else
+					speakerName = sid:match("^([A-Za-z]+)") or sid
+				end
+			end
+		end
+		-- Resolve optional title/epithet/subtitle
+		local titleId = nil
+		if line.SpeakerSubtitle ~= nil then
+			titleId = line.SpeakerSubtitle
+		elseif line.Subtitle ~= nil then
+			titleId = line.Subtitle
+		elseif line.Epithet ~= nil then
+			titleId = line.Epithet
+		elseif line.SpeakerTitle ~= nil then
+			titleId = line.SpeakerTitle
+		elseif type(args) == "table" then
+			if args.Subtitle ~= nil then
+				titleId = args.Subtitle
+			elseif args.Epithet ~= nil then
+				titleId = args.Epithet
+			elseif args.SpeakerTitle ~= nil then
+				titleId = args.SpeakerTitle
+			end
+		end
+		local titleText = nil
+		if titleId ~= nil then
+			titleText = GetDisplayName({ Text = titleId, IgnoreSpecialFormatting = true }):gsub("{[^}]+}", ""):gsub("%((s)%)", "s")
+		end
+		local outputText = text
+		if speakerName ~= nil and speakerName ~= "" then
+			if titleText ~= nil and titleText ~= "" and titleText ~= speakerName then
+				outputText = speakerName .. "(" .. titleText .. "): " .. text
+			else
+				outputText = speakerName .. ": " .. text
+			end
+		end
+		rom.tolk.output(outputText)
 	end
 	base(screen, source, line, parentLine, nextLine, args)
 end)
