@@ -126,6 +126,7 @@ local IconNameToTextId = {
 	["PlantGCattail_Text"] = "PlantGCattail",
 	["PlantNGarlicSeed_Text"] = "PlantNGarlicSeed",
 	["PlantNGarlic_Text"] = "PlantNGarlic",
+	["CosmeticsPointsPrestige_Text"] = "CosmeticsPoints",
 	["PlantOMandrakeSeed_Text"] = "PlantOMandrakeSeed",
 	["PlantOMandrake_Text"] = "PlantOMandrake",
 	["BountyBoardEye"] = "DeathVengeanceKeepsake"
@@ -136,14 +137,59 @@ function OnMouseOverTrigger(triggerArgs)
     if button == nil then
         return
     end
-    
+
+    -- Skip talent buttons - they have their own dedicated handler
+    if button.Id and string.find(button.Id, "TalentObject") then
+        return
+    end
+
     if button.Id then
-        local lines = rom.tolk.get_lines_from_thing(button.Id)
-        rom.tolk.silence()
+        -- For Cauldron (Ghost Admin) buttons, insert cost information between name and description
+        if button.Data and button.Data.Cost and type(button.Data.Cost) == "table" and not button.Purchased then
+            local lines = rom.tolk.get_lines_from_thing(button.Id)
 
-		local collection = createCollection(lines)
+            -- Insert cost lines after the first line (name) and before the description
+            if #lines >= 2 then
+                local newLines = {lines[1]} -- Start with the name
 
-        rom.tolk.output(collection)
+                -- Add cost label
+                table.insert(newLines, "Cost")
+
+                -- Add each resource cost
+                for resourceName, amount in pairs(button.Data.Cost) do
+                    local resourceData = ResourceData[resourceName]
+                    if resourceData then
+                        local resourceDisplayName = GetDisplayName({ Text = resourceData.CostTextId or resourceName })
+                        if resourceDisplayName and resourceDisplayName ~= "" then
+                            table.insert(newLines, amount .. " " .. resourceDisplayName)
+                        end
+                    end
+                end
+
+                -- Add the rest of the lines (description, etc.)
+                for i = 2, #lines do
+                    table.insert(newLines, lines[i])
+                end
+
+                lines = newLines
+            end
+
+            local collection = createCollection(lines)
+            if collection and collection:match("%S") then
+                rom.tolk.silence()
+                rom.tolk.output(collection)
+            end
+        else
+            -- Normal handling for non-Cauldron buttons
+            local lines = rom.tolk.get_lines_from_thing(button.Id)
+            local collection = createCollection(lines)
+
+            -- Only output if there's actual content (not just whitespace)
+            if collection and collection:match("%S") then
+                rom.tolk.silence()
+                rom.tolk.output(collection)
+            end
+        end
     end
 end
 
@@ -153,19 +199,78 @@ function tolk_OnButtonHover(lines)
 	rom.tolk.output(collection)
 end
 
+-- Helper function to convert icon paths to readable text (defined in ready.lua but need it here too)
+local function ConvertIconsToText(text)
+	if not text then return text end
+
+	-- Common icon mappings
+	local iconMappings = {
+		["@GUI\\Icons\\Life"] = "Health",
+		["@GUI\\Icons\\Currency"] = "Gold",
+		["@gui/icons/life"] = "Health",
+		["@gui/icons/currency"] = "Gold",
+		["@gui/icons/mana"] = "Magick",
+		["@gui/icons/armor"] = "Armor",
+		["@gui/icons/attack"] = "Attack",
+		["@gui/icons/speed"] = "Speed",
+	}
+
+	-- First try exact matches (case-insensitive)
+	for pattern, replacement in pairs(iconMappings) do
+		text = text:gsub(pattern:gsub("\\", "\\\\"), replacement)
+		text = text:gsub(pattern:lower():gsub("\\", "\\\\"), replacement)
+		text = text:gsub(pattern:upper():gsub("\\", "\\\\"), replacement)
+	end
+
+	-- Handle any remaining icon patterns by extracting the icon name
+	text = text:gsub("@[Gg][Uu][Ii][/\\][Ii]cons[/\\]([%w_]+)%.?%d*", function(iconName)
+		local knownNames = {
+			life = "Health",
+			currency = "Gold",
+			mana = "Magick",
+			armor = "Armor",
+			attack = "Attack",
+			speed = "Speed",
+		}
+
+		local lowerName = iconName:lower()
+		if knownNames[lowerName] then
+			return knownNames[lowerName]
+		end
+
+		return iconName:sub(1,1):upper() .. iconName:sub(2)
+	end)
+
+	return text
+end
+
 function createCollection(lines)
 	local collection = ""
 	for i = 1, #lines do
 		local line = lines[i]
-		if line:sub(0,1) ~= "@" then
-			collection = collection .. " " .. line:gsub("%(s%)", "s")
-		else
-			local ending = ""
-			for k in line:gmatch("[^/]+") do
-				ending = k
+		if line and line ~= "" then
+			-- Clean up the line - remove curly braces, convert icons, and fix plurals
+			line = line:gsub("{[^}]+}", ""):gsub("%(s%)", "s")
+			line = ConvertIconsToText(line)
+
+			-- Check if line starts with @ (old icon format)
+			if line:sub(1,1) == "@" then
+				-- Extract the ending part after last slash
+				local ending = ""
+				for k in line:gmatch("[^/]+") do
+					ending = k
+				end
+				-- Try to get display name from icon mapping
+				if IconNameToTextId[ending] then
+					local outputText = GetDisplayName({Text=IconNameToTextId[ending]}):gsub("{[^}]+}", ""):gsub("%(s%)", "s")
+					collection = collection .. " " .. outputText
+				else
+					-- Fallback: just use the ending part
+					collection = collection .. " " .. ending
+				end
+			else
+				collection = collection .. " " .. line
 			end
-			local outputText = GetDisplayName({Text=IconNameToTextId[ending]}):gsub("{[^}]+}", ""):gsub("%(s%)", "s")
-			collection = collection .. " " .. outputText
 		end
 	end
 
@@ -188,3 +293,6 @@ function GetGiftCount(characterName)
 
 	return #GameState.GiftTextLinesOrderRecord[characterName]
 end
+
+-- Track which codex buttons we've already added accessibility text to
+CodexButtonsProcessed = {}
