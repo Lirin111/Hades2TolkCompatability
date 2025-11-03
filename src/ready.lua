@@ -113,20 +113,40 @@ end)
 -- Read prompts.
 ModUtil.Path.Wrap("CreateScreenFromData", function(base, screen, componentData)
 	base(screen, componentData)
-	if screen and screen.Components and screen.Components.TitleText and screen.Components.DescriptionText and not screen.hasBeenReadByAccessibility then
-		screen.hasBeenReadByAccessibility = true
+	if screen and screen.Components then
+		if screen.Components.GiveInfoBoxName and screen.Components.GetInfoBoxName then
+			thread(function()
+				wait(0.2)
 
-		thread(function()
-			wait(0.1)
+				local titleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.TitleText.Id))
+				local subtitleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.SubtitleText.Id))
+				local giveHintString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.GiveHintText.Id))
+				local giveItemName = createCollection(rom.tolk.get_lines_from_thing(screen.Components.GiveInfoBoxName.Id))
+				local giveItemDesc = createCollection(rom.tolk.get_lines_from_thing(screen.Components.GiveInfoBoxBacking.Id))
+				local getHintString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.GetHintText.Id))
+				local getItemName = createCollection(rom.tolk.get_lines_from_thing(screen.Components.GetInfoBoxName.Id))
+				local getItemDesc = createCollection(rom.tolk.get_lines_from_thing(screen.Components.GetInfoBoxBacking.Id))
 
-			local titleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.TitleText.Id))
-			local descriptionString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.DescriptionText.Id))
+				local fullPrompt = titleString .. " " .. subtitleString .. " "
+				fullPrompt = fullPrompt .. giveHintString .. " " .. giveItemName .. ". "
+				if giveItemDesc and giveItemDesc:match("%S") then fullPrompt = fullPrompt .. giveItemDesc .. " " end
+				fullPrompt = fullPrompt .. getHintString .. " " .. getItemName .. ". "
+				if getItemDesc and getItemDesc:match("%S") then fullPrompt = fullPrompt .. getItemDesc end
+				fullPrompt = fullPrompt:gsub("%s+", " "):gsub("^%s*(.-)%s*$", "%1")
+				rom.tolk.silence()
+				rom.tolk.output(fullPrompt)
+			end)
 
-			local fullPrompt = titleString .. ". " .. descriptionString
-
-			rom.tolk.silence()
-			rom.tolk.output(fullPrompt)
-		end)
+		elseif screen.Components.TitleText and screen.Components.DescriptionText then
+			thread(function()
+				wait(0.1)
+				local titleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.TitleText.Id))
+				local descriptionString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.DescriptionText.Id))
+				local fullPrompt = titleString .. ". " .. descriptionString
+				rom.tolk.silence()
+				rom.tolk.output(fullPrompt)
+			end)
+		end
 	end
 end)
 
