@@ -19,6 +19,9 @@ OnMouseOver{
 
 --Read non-dialogue voicelines
 ModUtil.Path.Wrap("PlayVoiceLine", function(base, line, prevLine, parentLine, source, args, originalArgs)
+if not config.Voicelines.ReadNonDialogue then
+	return base(line, prevLine, parentLine, source, args, originalArgs)
+end
 	local isDryRun = (args and args.ReturnOnly) or (originalArgs and originalArgs.ReturnOnly)
 
 	-- We only proceed with our announcement logic if there's a real cue AND it is NOT a dry run.
@@ -111,13 +114,28 @@ ModUtil.Path.Wrap("DisplayInfoBanner", function(base, source, args)
 end)
 
 -- Read prompts.
+--[[
+	AUTONOMOUS PROMPT READER (Minimalist and Complete)
+
+	This version uses the simplified structure (no "hasBeenRead" flag) but
+	includes the full, correct logic for assembling both simple and complex prompts.
+]]
+
 ModUtil.Path.Wrap("CreateScreenFromData", function(base, screen, componentData)
+
+	-- Always run the base function first to create the screen's components.
 	base(screen, componentData)
+
+	-- We start with a basic check for a valid screen.
 	if screen and screen.Components then
+		
+		-- FINGERPRINT 1: Is this a Trade Screen?
 		if screen.Components.GiveInfoBoxName and screen.Components.GetInfoBoxName then
+			
 			thread(function()
 				wait(0.2)
-
+				
+				-- This is the full, correct logic for assembling the Trade Screen announcement.
 				local titleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.TitleText.Id))
 				local subtitleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.SubtitleText.Id))
 				local giveHintString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.GiveHintText.Id))
@@ -132,17 +150,24 @@ ModUtil.Path.Wrap("CreateScreenFromData", function(base, screen, componentData)
 				if giveItemDesc and giveItemDesc:match("%S") then fullPrompt = fullPrompt .. giveItemDesc .. " " end
 				fullPrompt = fullPrompt .. getHintString .. " " .. getItemName .. ". "
 				if getItemDesc and getItemDesc:match("%S") then fullPrompt = fullPrompt .. getItemDesc end
+				
 				fullPrompt = fullPrompt:gsub("%s+", " "):gsub("^%s*(.-)%s*$", "%1")
+				
 				rom.tolk.silence()
 				rom.tolk.output(fullPrompt)
 			end)
 
+		-- FINGERPRINT 2: Is this a simple prompt screen?
 		elseif screen.Components.TitleText and screen.Components.DescriptionText then
+			
 			thread(function()
 				wait(0.1)
+				
+				-- This is the full, correct logic for assembling a simple prompt.
 				local titleString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.TitleText.Id))
 				local descriptionString = createCollection(rom.tolk.get_lines_from_thing(screen.Components.DescriptionText.Id))
 				local fullPrompt = titleString .. ". " .. descriptionString
+				
 				rom.tolk.silence()
 				rom.tolk.output(fullPrompt)
 			end)
@@ -152,6 +177,9 @@ end)
 
 -- Read dialogues
 ModUtil.Path.Wrap("DisplayTextLine", function(base, screen, source, line, parentLine, nextLine, args)
+if not config.Voicelines.ReadDialogues then
+	return base(screen, source, line, parentLine, nextLine, args)
+end
 	if line.Cue ~= nil and line.Cue ~= "/EmptyCue" then
 		local ref = line.Cue
 		ref = string.gsub(ref, "/VO/", "")
@@ -238,7 +266,7 @@ ModUtil.Path.Wrap("DisplayTextLine", function(base, screen, source, line, parent
 		end
 		rom.tolk.output(outputText)
 	end
-	base(screen, source, line, parentLine, nextLine, args)
+	return base(screen, source, line, parentLine, nextLine, args)
 end)
 
 -- Add description text to Quest buttons (like Silver Pool does)
